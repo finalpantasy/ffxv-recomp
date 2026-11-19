@@ -1,0 +1,11 @@
+analysis/
+generated/
+build/
+.venv/
+__pycache__/
+*.pyc
+*.exe
+*.dll
+*.bin
+*.dmp
+*.tmp
