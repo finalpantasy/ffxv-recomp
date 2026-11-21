@@ -1161,6 +1161,14 @@ def discover(start, code, allow_tail_calls=False):
                     address, instruction.length, "tail", (), frozenset(), frozenset(), 0,
                     (Operand(None, target),),
                 )
+        if allow_tail_calls and instruction.mnemonic in CONDITIONAL_JUMPS:
+            target = instruction.successors[0]
+            if not start - MAX_CODE_SIZE <= target < start + MAX_CODE_SIZE:
+                instruction = Instruction(
+                    address, instruction.length, instruction.mnemonic,
+                    (instruction.successors[-1],), instruction.reads, instruction.writes,
+                    instruction.width, (Operand(None, target),),
+                )
         instructions[address] = instruction
         pending.extend(instruction.successors)
     ordered = sorted(instructions.values(), key=lambda instruction: instruction.address)
@@ -3009,8 +3017,15 @@ def emit_c(name, start, instructions, stack_arguments=0, cpu_context=False):
                 lines.append(f"    {operand.write_c('read64(rsp)', 64)}")
                 lines.append("    rsp += 8;")
             elif mnemonic in CONDITIONAL_JUMPS:
-                target = instruction.successors[0]
-                lines.append(f"    if ({CONDITIONS[mnemonic]}) goto rva_{target:x};")
+                if instruction.operands:
+                    external = instruction.operands[0].value
+                    lines.append(
+                        f"    if ({CONDITIONS[mnemonic]})"
+                        f" {{ recomp_cpu_dispatch(cpu, UINT64_C(0x{external:x})); return; }}"
+                    )
+                else:
+                    target = instruction.successors[0]
+                    lines.append(f"    if ({CONDITIONS[mnemonic]}) goto rva_{target:x};")
             if mnemonic not in {"tail", "trap"}:
                 lines.append(f"    goto rva_{instruction.successors[-1]:x};")
         lines.append("}")
