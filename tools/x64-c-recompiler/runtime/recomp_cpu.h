@@ -32,6 +32,7 @@ typedef struct RecompCpu {
     int zf;
     int pf;
     int af;
+    uint64_t tls_base;
 } RecompCpu;
 
 typedef void (*RecompCpuFunction)(RecompCpu *cpu);

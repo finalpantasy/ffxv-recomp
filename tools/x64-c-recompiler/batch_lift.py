@@ -47,11 +47,12 @@ def error_kind(error):
 
 
 def discover_funclets(image, ranges, range_starts, start, end, cpu_context=False):
+    code_start = start
     code_end = end
     for _ in range(64):
         try:
-            instructions = lift.discover(start, image.get_data(start, code_end - start), cpu_context)
-            first = bisect.bisect_left(range_starts, start)
+            instructions = lift.discover(start, image.get_data(code_start, code_end - code_start), cpu_context)
+            first = bisect.bisect_left(range_starts, code_start)
             last = bisect.bisect_left(range_starts, code_end)
             covered = ranges[first:last]
             return instructions, code_end, covered
@@ -60,15 +61,23 @@ def discover_funclets(image, ranges, range_starts, start, end, cpu_context=False
             if match is None:
                 raise
             target = int(match.group(1), 16)
-            if target < start or target >= start + lift.MAX_CODE_SIZE:
+            if target < start - lift.MAX_CODE_SIZE or target >= start + lift.MAX_CODE_SIZE:
                 raise
             index = bisect.bisect_right(range_starts, target) - 1
-            if index < 0:
-                raise
+            if index < 0 or ranges[index][0] > target or ranges[index][1] <= target:
+                next_index = bisect.bisect_right(range_starts, target)
+                if next_index >= len(ranges):
+                    raise
+                code_end = max(code_end, range_starts[next_index])
+                continue
             target_start, target_end = ranges[index]
-            if target_start > target or target_end <= code_end:
+            if target_start < code_start:
+                code_start = target_start
+                code_end = max(code_end, target_end)
+            elif target_end > code_end:
+                code_end = target_end
+            else:
                 raise
-            code_end = target_end
     raise lift.LiftError(f"RVA 0x{start:x}: too many linked funclets")
 
 

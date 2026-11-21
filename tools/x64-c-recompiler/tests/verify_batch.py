@@ -15,6 +15,56 @@ import pefile
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 import lift
+import batch_lift
+
+
+def verify_funclet_linking():
+    class Image:
+        @staticmethod
+        def get_data(start, size):
+            return bytes(size)
+
+    original = batch_lift.lift.discover
+    calls = []
+
+    def discover(start, code, cpu_context=False):
+        calls.append(len(code))
+        if len(calls) == 1:
+            raise lift.LiftError("RVA 0x2004 is outside the selected code range")
+        return {start: object()}
+
+    batch_lift.lift.discover = discover
+    try:
+        ranges = [(0x1000, 0x1010), (0x2000, 0x2020)]
+        instructions, code_end, covered = batch_lift.discover_funclets(
+            Image(), ranges, [start for start, _end in ranges], 0x1000, 0x1010,
+        )
+        assert code_end == 0x2020
+        assert covered == ranges
+        assert set(instructions) == {0x1000}
+        assert calls == [0x10, 0x1020]
+
+        calls.clear()
+        ranges = [(0x2000, 0x2020), (0x3000, 0x3010)]
+        instructions, code_end, covered = batch_lift.discover_funclets(
+            Image(), ranges, [start for start, _end in ranges], 0x3000, 0x3010,
+        )
+        assert code_end == 0x3010
+        assert covered == ranges
+        assert set(instructions) == {0x3000}
+        assert calls == [0x10, 0x1010]
+
+        calls.clear()
+        ranges = [(0x1000, 0x1010), (0x3000, 0x3010)]
+        instructions, code_end, covered = batch_lift.discover_funclets(
+            Image(), ranges, [start for start, _end in ranges], 0x1000, 0x1010,
+        )
+        assert code_end == 0x3000
+        assert covered == ranges[:1]
+        assert set(instructions) == {0x1000}
+        assert calls == [0x10, 0x2000]
+    finally:
+        batch_lift.lift.discover = original
 
 
 def run(args, directory):
@@ -98,6 +148,7 @@ def domain_cases(record, cases):
 
 
 def main():
+    verify_funclet_linking()
     parser = argparse.ArgumentParser(description="Differential-test pure functions from a batch manifest")
     parser.add_argument("image", type=Path)
     parser.add_argument("manifest", type=Path)
