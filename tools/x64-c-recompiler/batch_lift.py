@@ -161,9 +161,17 @@ def main():
                 save_manifest(args, manifest_path, image_digest, records, failures, summary, False)
             size = end - start
             if not 1 <= size <= lift.MAX_CODE_SIZE:
-                failures.append({"rva": key, "size": size, "kind": "size", "error": "invalid or excessive function size"})
-                summary["size"] += 1
-                continue
+                index = bisect.bisect_right(range_starts, start)
+                clamped_end = ranges[index][0] if index < len(ranges) else None
+                if end > start:
+                    far_end = start + lift.MAX_CODE_SIZE
+                    clamped_end = min(clamped_end, far_end) if clamped_end else far_end
+                if clamped_end is None or not 1 <= clamped_end - start <= lift.MAX_CODE_SIZE:
+                    failures.append({"rva": key, "size": size, "kind": "size", "error": "invalid or excessive function size"})
+                    summary["size"] += 1
+                    continue
+                end = clamped_end
+                size = end - start
             try:
                 instructions, code_end, covered = discover_funclets(
                     image, ranges, range_starts, start, end, args.cpu_context,
