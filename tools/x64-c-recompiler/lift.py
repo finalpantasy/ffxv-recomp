@@ -327,11 +327,11 @@ def lower(decoded, allow_tail_calls=False):
         return Instruction(
             address, length, mnemonic, (following,), frozenset(reads), frozenset(writes), width, (left, right),
         )
-    if mnemonic == "lock xadd" and len(operands) == 2 and operands[0].size in (1, 2, 4, 8):
+    if mnemonic in {"lock xadd", "xadd"} and len(operands) == 2 and operands[0].size in (1, 2, 4, 8):
         width = operands[0].size * 8
         left, right = (read_operand(decoded, operand, width) for operand in operands)
         if left.value is not None or right.value is not None:
-            raise LiftError(f"RVA 0x{address:x}: lock xadd requires writable operands")
+            raise LiftError(f"RVA 0x{address:x}: xadd requires writable operands")
         reads = set(left.address_registers) | set(right.address_registers)
         reads.update(operand_reads(left))
         reads.update(operand_reads(right))
@@ -1147,11 +1147,11 @@ def lower(decoded, allow_tail_calls=False):
     raise LiftError(f"RVA 0x{address:x}: unsupported instruction {decoded.mnemonic} {decoded.op_str}".rstrip())
 
 
-def discover(start, code, allow_tail_calls=False):
+def discover(start, code, allow_tail_calls=False, entries=()):
     decoder = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)
     decoder.detail = True
     instructions = {}
-    pending = [start]
+    pending = [start, *entries]
     while pending:
         address = pending.pop()
         if address in instructions:
@@ -1172,7 +1172,7 @@ def discover(start, code, allow_tail_calls=False):
                 )
         if allow_tail_calls and instruction.mnemonic in CONDITIONAL_JUMPS:
             target = instruction.successors[0]
-            if not start - MAX_CODE_SIZE <= target < start + MAX_CODE_SIZE:
+            if not start <= target < start + len(code):
                 instruction = Instruction(
                     address, instruction.length, instruction.mnemonic,
                     (instruction.successors[-1],), instruction.reads, instruction.writes,
@@ -1187,10 +1187,10 @@ def discover(start, code, allow_tail_calls=False):
     return instructions
 
 
-def check_initialized(start, instructions, full_state=False):
+def check_initialized(start, instructions, full_state=False, entries=()):
     initial = frozenset((*REGISTERS, "flags")) if full_state else frozenset((*ARGUMENTS, *CALLEE_SAVED, *CALLEE_SAVED_XMM, "rsp", "flags"))
-    incoming = {start: initial}
-    pending = deque([start])
+    incoming = {entry: initial for entry in (start, *entries)}
+    pending = deque((start, *entries))
     while pending:
         address = pending.popleft()
         instruction = instructions[address]
@@ -1210,20 +1210,26 @@ def check_initialized(start, instructions, full_state=False):
 def infer_stack_arguments(instructions):
     start = min(instructions)
     deltas = {start: 0}
+    poisoned = set()
     pending = deque([start])
     maximum = 0
     while pending:
         address = pending.popleft()
         instruction = instructions[address]
-        delta = deltas[address]
-        for operand in instruction.operands:
-            if operand.memory and operand.base == "rsp":
-                offset = delta + operand.displacement
-                if offset >= 0x28:
-                    maximum = max(maximum, (offset - 0x28) // 8 + 1)
+        is_poison = address in poisoned
+        delta = deltas.get(address, 0)
+        if not is_poison:
+            for operand in instruction.operands:
+                if operand.memory and operand.base == "rsp":
+                    offset = delta + operand.displacement
+                    if offset >= 0x28:
+                        maximum = max(maximum, (offset - 0x28) // 8 + 1)
         mnemonic = instruction.mnemonic
         effect = 0
-        if mnemonic in {"push", "pushfq"}:
+        propagate_poison = is_poison
+        if is_poison:
+            pass
+        elif mnemonic in {"push", "pushfq"}:
             effect = -8
         elif mnemonic in {"pop", "popfq"}:
             effect = 8
@@ -1232,9 +1238,30 @@ def infer_stack_arguments(instructions):
             if immediate is None:
                 raise LiftError(f"RVA 0x{address:x}: dynamic stack-pointer adjustment")
             effect = immediate if mnemonic == "add" else -immediate
+        elif mnemonic in {"adc", "sbb"} and instruction.operands[0].register == "rsp":
+            effect = 0
+        elif (mnemonic == "lea" and instruction.operands[0].register == "rsp" and
+              instruction.operands[1].base == "rsp" and instruction.operands[1].index is None):
+            effect = instruction.operands[1].displacement
         elif "rsp" in instruction.writes and mnemonic != "call":
-            raise LiftError(f"RVA 0x{address:x}: dynamic stack-pointer assignment")
+            # rsp aligned via `and/or rsp, imm` (Denuvo trampolines, and SIMD
+            # prologues): the compile-time stack delta becomes indeterminate.
+            # Such sites read no further stack arguments, so poison the delta
+            # downstream (stop counting arg slots / depth checks) instead of
+            # refusing the whole function. Truly dynamic rsp writes still raise.
+            if mnemonic in {"and", "or"} and instruction.operands[0].register == "rsp":
+                propagate_poison = True
+            else:
+                raise LiftError(f"RVA 0x{address:x}: dynamic stack-pointer assignment")
         for successor in instruction.successors:
+            if propagate_poison:
+                if successor not in poisoned:
+                    poisoned.add(successor)
+                    deltas.setdefault(successor, delta)
+                    pending.append(successor)
+                continue
+            if successor in poisoned:
+                continue
             updated = delta + effect
             previous = deltas.get(successor)
             if previous is None:
@@ -1263,7 +1290,7 @@ def defined_flags(instruction):
         return {"cf", "of"}
     if mnemonic == "neg":
         return {"cf", "of", "sf", "zf", "pf", "af"}
-    if mnemonic in {"rep cmpsw", "repe cmpsw", "repne cmpsw", "repne scasw", "lock xadd", "lock cmpxchg", "popfq"}:
+    if mnemonic in {"rep cmpsw", "repe cmpsw", "repne cmpsw", "repne scasw", "lock xadd", "xadd", "lock cmpxchg", "popfq"}:
         return {"cf", "of", "sf", "zf", "pf", "af"}
     if mnemonic in {"imul", "mul"}:
         return {"cf", "of", "sf", "zf", "pf"}
@@ -1679,7 +1706,11 @@ def division_helpers(widths):
     return lines
 
 
-def emit_c(name, start, instructions, stack_arguments=0, cpu_context=False):
+def emit_c(name, start, instructions, stack_arguments=0, cpu_context=False, local_rvas=()):
+    local_rvas = set(local_rvas)
+    missing_locals = local_rvas - set(instructions)
+    if missing_locals:
+        raise LiftError("local RVAs not discovered: " + ", ".join(f"0x{address:x}" for address in sorted(missing_locals)))
     check_flag_liveness(instructions)
     registers = set()
     uses_memory = False
@@ -1893,6 +1924,8 @@ def emit_c(name, start, instructions, stack_arguments=0, cpu_context=False):
             )
         lines.extend(f"    int {flag} = 0;" for flag in flags)
         lines.extend(f"    (void){register};" for register in (*ARGUMENTS, *stack_names, *locals_used))
+    for local_rva in sorted(local_rvas):
+        lines.append(f"    if (cpu == NULL) goto rva_{local_rva:x};")
     lines.extend([f"    goto rva_{start:x};", ""])
     for address, instruction in sorted(instructions.items()):
         mnemonic = instruction.mnemonic
@@ -1917,6 +1950,11 @@ def emit_c(name, start, instructions, stack_arguments=0, cpu_context=False):
                     target_expression = f"({target_value} - image_base)"
                 else:
                     target_expression = f"UINT64_C(0x{operand.value:x})"
+                if instruction.source_width == 1:
+                    for local_rva in sorted(local_rvas):
+                        lines.append(
+                            f"    if ({target_expression} == UINT64_C(0x{local_rva:x})) goto rva_{local_rva:x};"
+                        )
                 lines.append(f"    recomp_cpu_dispatch(cpu, {target_expression});")
                 lines.append("    return;")
             elif mnemonic == "call":
@@ -2792,7 +2830,7 @@ def emit_c(name, start, instructions, stack_arguments=0, cpu_context=False):
                     f"        {Operand('rax').write_c('left', width)}",
                     "    }",
                 ])
-            elif mnemonic == "lock xadd":
+            elif mnemonic in {"lock xadd", "xadd"}:
                 lhs, rhs = instruction.operands
                 width = instruction.width
                 c_type = f"uint{width}_t"
@@ -3076,7 +3114,13 @@ def main():
                         help="maximum code span in bytes from the function RVA, in decimal or hex")
     parser.add_argument("--output", type=Path, required=True, help="new C output file")
     parser.add_argument("--cpu-context", action="store_true", help="emit a full RecompCpu function")
+    parser.add_argument("--extra-rva", action="append", default=[], type=lambda value: int(value, 0),
+                        help="additional entry RVA to discover within the selected range")
+    parser.add_argument("--local-rva", action="append", default=[], type=lambda value: int(value, 0),
+                        help="allowed local target for an indirect tail jump")
     args = parser.parse_args()
+    if args.local_rva and not args.cpu_context:
+        parser.error("--local-rva requires --cpu-context")
     if not re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]*", args.name):
         parser.error("name must be a C identifier")
     if not 1 <= args.size <= MAX_CODE_SIZE:
@@ -3088,12 +3132,12 @@ def main():
             start, code = read_export(args.image, args.name, args.size)
         else:
             start, code = read_range(args.image, args.rva, args.size)
-        instructions = discover(start, code, args.cpu_context)
-        check_initialized(start, instructions, args.cpu_context)
+        instructions = discover(start, code, args.cpu_context, args.extra_rva)
+        check_initialized(start, instructions, args.cpu_context, args.extra_rva)
         stack_arguments = args.stack_arguments
         if stack_arguments is None:
             stack_arguments = infer_stack_arguments(instructions)
-        source = emit_c(args.name, start, instructions, stack_arguments, args.cpu_context)
+        source = emit_c(args.name, start, instructions, stack_arguments, args.cpu_context, args.local_rva)
         with args.output.open("x", encoding="utf-8", newline="\n") as output:
             output.write(source)
     except pefile.PEFormatError as error:
