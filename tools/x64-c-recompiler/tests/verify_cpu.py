@@ -8,7 +8,7 @@ import verify
 
 ROOT = Path(__file__).resolve().parents[1]
 FUNCTIONS = ("mix64", "direct_call", "indirect_call", "tail_call", "indirect_tail", "register_tail", "prefixed_nop", "push_stack_sources", "rip_relative_negative")
-CONTEXT_FUNCTIONS = (*FUNCTIONS, "mul_one64", "mul_one32", "rotate_flags", "rotate_flag_preservation", "xchg_andnot", "bit_scans", "push_flags", "sign_extend16", "dynamic_bits", "neg_not", "adc_flags", "double_shifts", "carry_rotates", "rotate_values", "bit_operations", "crc32_values", "jump_rcx", "xmm_roundtrip", "scalar_moves", "narrow_memory", "string_scans", "string_copies", "lock_xadd", "compare_float", "float_startup", "scalar_double_convert", "scalar_int_double", "scalar_double", "vector_general", "vector_float", "vector_andnot", "vector_shuffle", "vector_unpack64", "vector_shuffle_double", "vector_horizontal", "vector_int", "vector_integer", "vector_int_arith", "vector_int_double", "vector_convert", "vector_mixed", "vector_compare", "vector_minmax", "vector_approx", "vector_byteshift", "signed_division", "unsigned_division", "scalar_minmax", "scalar_sqrt", "tls_read", "ret_immediate", "cpu_identification", "trap_instruction")
+CONTEXT_FUNCTIONS = (*FUNCTIONS, "mul_one64", "mul_one32", "rotate_flags", "rotate_flag_preservation", "xchg_andnot", "bit_scans", "push_flags", "sign_extend16", "dynamic_bits", "neg_not", "adc_flags", "double_shifts", "double_shifts_cl", "carry_rotates", "rotate_values", "bit_operations", "crc32_values", "jump_rcx", "xmm_roundtrip", "scalar_moves", "narrow_memory", "string_scans", "string_copies", "lock_xadd", "compare_float", "float_startup", "scalar_double_convert", "scalar_int_double", "scalar_double", "vector_general", "vector_float", "vector_andnot", "vector_shuffle", "vector_unpack64", "vector_shuffle_double", "vector_horizontal", "vector_int", "vector_integer", "vector_int_arith", "vector_int_double", "vector_convert", "vector_mixed", "vector_compare", "vector_minmax", "vector_approx", "vector_byteshift", "signed_division", "unsigned_division", "signed_division8", "unsigned_division8", "scalar_minmax", "scalar_sqrt", "tls_read", "ret_immediate", "cpu_identification", "trap_instruction")
 
 
 class Xmm(ctypes.Structure):
@@ -1173,6 +1173,8 @@ def verify_division(native, lifted, flag):
             (1000, 0, 0xFFFFFFFFFFFFFFE7), (0xFFFFFFFFFFFFFC18, 0xFFFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFE7),
         ],
         "unsigned_division": [(100, 0, 7), (1000, 0, 25), (0xFFFFFFFFFFFFFFF0, 0, 31)],
+        "signed_division8": [(100, 0, 7), (0xFFFFFFFFFFFFFF9C, 0, 7), (1000, 0, 0xE7), (0xFFFFFFFFFFFFFC18, 0, 0xE7)],
+        "unsigned_division8": [(100, 0, 7), (1000, 0, 25), (0x3F0, 0, 31)],
     }
     for name, cases in configurations.items():
         expected = verify.get_function(native, name)
@@ -1307,7 +1309,7 @@ def verify_tls(native, lifted, flag):
 def verify_mul_context(native, lifted, flag):
     comparisons = 0
     cases = verify.inputs()
-    for name in ("mul_one64", "mul_one32", "rotate_flags", "rotate_flag_preservation", "xchg_andnot", "bit_scans", "push_flags", "sign_extend16", "dynamic_bits", "neg_not", "adc_flags", "double_shifts", "carry_rotates", "rotate_values", "bit_operations", "crc32_values", "jump_rcx"):
+    for name in ("mul_one64", "mul_one32", "rotate_flags", "rotate_flag_preservation", "xchg_andnot", "bit_scans", "push_flags", "sign_extend16", "dynamic_bits", "neg_not", "adc_flags", "double_shifts", "double_shifts_cl", "carry_rotates", "rotate_values", "bit_operations", "crc32_values", "jump_rcx"):
         expected = verify.get_function(native, name)
         actual = getattr(lifted, f"lifted_{name}_cpu")
         actual.argtypes = [ctypes.POINTER(Cpu)]

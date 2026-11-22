@@ -585,6 +585,25 @@ double_shifts_end PROC
     int 3
 double_shifts_end ENDP
 
+double_shifts_cl PROC
+    mov rax, rcx
+    mov r9, rcx
+    mov r10, rcx
+    mov r11, rcx
+    mov rcx, r8
+    shld rax, rdx, cl
+    shrd r9, r9, cl
+    shld r10d, edx, cl
+    shrd r11d, r11d, cl
+    add rax, r9
+    add rax, r10
+    add rax, r11
+    ret
+double_shifts_cl ENDP
+double_shifts_cl_end PROC
+    int 3
+double_shifts_cl_end ENDP
+
 carry_rotates PROC
     mov eax, ecx
     bt eax, 0
@@ -1501,6 +1520,30 @@ unsigned_division ENDP
 unsigned_division_end PROC
     int 3
 unsigned_division_end ENDP
+
+signed_division8 PROC
+    mov rax, rcx
+    idiv r8b
+    mov rdx, rax
+    shr rdx, 8
+    mov [r9], dl
+    ret
+signed_division8 ENDP
+signed_division8_end PROC
+    int 3
+signed_division8_end ENDP
+
+unsigned_division8 PROC
+    mov rax, rcx
+    div r8b
+    mov rdx, rax
+    shr rdx, 8
+    mov [r9], dl
+    ret
+unsigned_division8 ENDP
+unsigned_division8_end PROC
+    int 3
+unsigned_division8_end ENDP
 
 scalar_minmax PROC
     movss xmm5, dword ptr [rcx]

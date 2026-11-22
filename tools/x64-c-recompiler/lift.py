@@ -561,15 +561,25 @@ def lower(decoded, allow_tail_calls=False):
         width = operands[0].size * 8
         left = read_operand(decoded, operands[0], width)
         right = read_operand(decoded, operands[1], width)
-        count = read_operand(decoded, operands[2], 64).value
-        if left.value is not None or count is None:
-            raise LiftError(f"RVA 0x{address:x}: {mnemonic} requires a writable destination and immediate count")
+        count = (read_operand(decoded, operands[2], 64).value
+                 if operands[2].type == x86_const.X86_OP_IMM else None)
+        if left.value is not None:
+            raise LiftError(f"RVA 0x{address:x}: {mnemonic} requires a writable destination")
         reads = set(left.address_registers) | set(right.address_registers)
         reads.update(operand_reads(left))
         reads.update(operand_reads(right))
         writes = {"flags"}
         if left.register is not None:
             writes.add(left.register)
+        if count is None:
+            count_operand = read_operand(decoded, operands[2], 8)
+            if count_operand.register != "rcx":
+                raise LiftError(f"RVA 0x{address:x}: {mnemonic} requires an immediate count or CL")
+            reads.update(operand_reads(count_operand))
+            return Instruction(
+                address, length, mnemonic, (following,), frozenset(reads), frozenset(writes),
+                width, (left, right, count_operand), -1,
+            )
         return Instruction(
             address, length, mnemonic, (following,), frozenset(reads), frozenset(writes),
             width, (left, right), count & (width - 1),
@@ -643,7 +653,7 @@ def lower(decoded, allow_tail_calls=False):
             address, length, mnemonic, (following,), frozenset(operand_reads(operand)),
             frozenset(writes), width, (operand,),
         )
-    if allow_tail_calls and mnemonic in {"idiv", "div"} and len(operands) == 1 and operands[0].size in (4, 8):
+    if allow_tail_calls and mnemonic in {"idiv", "div"} and len(operands) == 1 and operands[0].size in (1, 4, 8):
         width = operands[0].size * 8
         source = read_operand(decoded, operands[0], width)
         return Instruction(
@@ -1652,6 +1662,31 @@ def imul_helpers(widths):
 
 def division_helpers(widths):
     lines = []
+    if 8 in widths:
+        lines.extend([
+            "static inline int idiv8_impl(uint8_t low, uint8_t high, uint8_t divisor, uint8_t *quotient, uint8_t *remainder)",
+            "{",
+            "    if (!divisor) return 0;",
+            "    int16_t dividend = (int16_t)(((uint16_t)high << 8) | low);",
+            "    int16_t signed_divisor = (int8_t)divisor;",
+            "    if (dividend == INT16_MIN && signed_divisor == -1) return 0;",
+            "    int16_t q = dividend / signed_divisor;",
+            "    if (q > INT8_MAX || q < INT8_MIN) return 0;",
+            "    *quotient = (uint8_t)q;",
+            "    *remainder = (uint8_t)(dividend % signed_divisor);",
+            "    return 1;",
+            "}",
+            "static inline int udiv8_impl(uint8_t low, uint8_t high, uint8_t divisor, uint8_t *quotient, uint8_t *remainder)",
+            "{",
+            "    if (!divisor) return 0;",
+            "    uint16_t dividend = ((uint16_t)high << 8) | low;",
+            "    uint16_t q = dividend / divisor;",
+            "    if (q > UINT8_MAX) return 0;",
+            "    *quotient = (uint8_t)q;",
+            "    *remainder = (uint8_t)(dividend % divisor);",
+            "    return 1;",
+            "}",
+        ])
     if 64 in widths:
         lines.extend([
             "#ifdef _MSC_VER",
@@ -2933,16 +2968,27 @@ def emit_c(name, start, instructions, stack_arguments=0, cpu_context=False, loca
                 source = instruction.operands[0]
                 prefix = "i" if mnemonic == "idiv" else "u"
                 width = instruction.width
-                lines.extend([
-                    f"uint{width}_t quotient = 0;",
-                    f"uint{width}_t remainder = 0;",
-                    f"if (!{prefix}div{width}_impl((uint{width}_t)rax, (uint{width}_t)rdx, {source.as_c(width)}, &quotient, &remainder)) {{",
-                    f"    recomp_cpu_trap(cpu, UINT64_C(0x{address:x}));",
-                    "    return;",
-                    "}",
-                    f"rax = (uint{width}_t)quotient;",
-                    f"rdx = (uint{width}_t)remainder;",
-                ])
+                if width == 8:
+                    lines.extend([
+                        "uint8_t quotient = 0;",
+                        "uint8_t remainder = 0;",
+                        f"if (!{prefix}div8_impl((uint8_t)rax, (uint8_t)(rax >> 8), {source.as_c(8)}, &quotient, &remainder)) {{",
+                        f"    recomp_cpu_trap(cpu, UINT64_C(0x{address:x}));",
+                        "    return;",
+                        "}",
+                        "rax = (rax & ~UINT64_C(0xffff)) | (uint8_t)quotient | ((uint64_t)(uint8_t)remainder << 8);",
+                    ])
+                else:
+                    lines.extend([
+                        f"uint{width}_t quotient = 0;",
+                        f"uint{width}_t remainder = 0;",
+                        f"if (!{prefix}div{width}_impl((uint{width}_t)rax, (uint{width}_t)rdx, {source.as_c(width)}, &quotient, &remainder)) {{",
+                        f"    recomp_cpu_trap(cpu, UINT64_C(0x{address:x}));",
+                        "    return;",
+                        "}",
+                        f"rax = (uint{width}_t)quotient;",
+                        f"rdx = (uint{width}_t)remainder;",
+                    ])
             elif mnemonic in {"imul", "mul"}:
                 lines.extend(f"    {line}" for line in imul_to_c(instruction, flags))
             elif mnemonic == "lea":
@@ -3005,10 +3051,41 @@ def emit_c(name, start, instructions, stack_arguments=0, cpu_context=False, loca
                         lines.append(f"    of = {overflow};")
                     lines.append(f"    {lhs.write_c('result', width)}")
             elif mnemonic in DOUBLE_SHIFTS:
-                lhs, rhs = instruction.operands
+                lhs, rhs = instruction.operands[:2]
                 count = instruction.source_width
                 width = instruction.width
-                if count:
+                if count == -1:
+                    count_operand = instruction.operands[2]
+                    sign_bit = f"UINT{width}_C(0x{1 << (width - 1):x})"
+                    if mnemonic == "shld":
+                        result = f"((uint64_t)left << count) | ((uint64_t)right >> ({width} - count))"
+                        carry = f"(left >> ({width} - count)) & 1"
+                    else:
+                        result = f"((uint64_t)left >> count) | ((uint64_t)right << ({width} - count))"
+                        carry = "(left >> (count - 1)) & 1"
+                    lines.extend([
+                        f"    uint64_t count = (uint64_t)({count_operand.as_c(8)}) & {63 if width == 64 else 31};",
+                        "    if (count != 0) {",
+                        f"        uint{width}_t left = {lhs.as_c(width)};",
+                        f"        uint{width}_t right = {rhs.as_c(width)};",
+                        f"        uint{width}_t result = (uint{width}_t)({result});",
+                    ])
+                    formulas = {
+                        "cf": carry,
+                        "of": f"count == 1 && ((left ^ result) & {sign_bit}) != 0",
+                        "sf": f"(result & {sign_bit}) != 0",
+                        "zf": "result == 0",
+                        "pf": "parity(result)",
+                        "af": "0",
+                    }
+                    lines.extend(f"        {flag} = {formulas[flag]};" for flag in flags)
+                    lines.append(f"        {lhs.write_c('result', width)}")
+                    lines.append("    }")
+                    if width == 32:
+                        lines.append("    else {")
+                        lines.append(f"        {lhs.write_c(lhs.as_c(32), 32)}")
+                        lines.append("    }")
+                elif count:
                     sign_bit = f"UINT{width}_C(0x{1 << (width - 1):x})"
                     if mnemonic == "shld":
                         result = f"((uint64_t)left << {count}) | ((uint64_t)right >> {width - count})"
@@ -3031,6 +3108,8 @@ def emit_c(name, start, instructions, stack_arguments=0, cpu_context=False, loca
                     }
                     lines.extend(f"    {flag} = {formulas[flag]};" for flag in flags)
                     lines.append(f"    {lhs.write_c('result', width)}")
+                elif width == 32:
+                    lines.append(f"    {lhs.write_c(lhs.as_c(32), 32)}")
             elif mnemonic in SHIFTS:
                 lines.extend(f"    {line}" for line in shift_to_c(instruction, flags))
             elif mnemonic == "neg":
