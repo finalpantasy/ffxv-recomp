@@ -357,7 +357,14 @@ def lower(decoded, allow_tail_calls=False):
         return Instruction(address, length, mnemonic, (following,), empty, empty)
     if mnemonic == "wait" and not operands:
         return Instruction(address, length, mnemonic, (following,), empty, empty)
-    if allow_tail_calls and mnemonic in {"int", "cli", "hlt"}:
+    if mnemonic == "int":
+        # Denuvo uses software interrupts (e.g. int 0x48) as anti-tamper markers
+        # inside its VM template region; in the protected run the registered VEH
+        # resumes past them. Emulate as a no-op that falls through to the next
+        # instruction so the real function body still executes, instead of a
+        # trap terminator (which compiles to recomp_cpu_trap and halts the loop).
+        return Instruction(address, length, "nop", (following,), empty, empty)
+    if allow_tail_calls and mnemonic in {"cli", "hlt"}:
         return Instruction(address, length, "trap", (), empty, empty)
     if mnemonic == "bswap" and len(operands) == 1 and operands[0].size in (4, 8):
         width = operands[0].size * 8
@@ -3080,8 +3087,9 @@ def emit_c(name, start, instructions, stack_arguments=0, cpu_context=False, loca
                     lines.extend(f"    {flag} = (value >> {bits[flag]}) & 1;" for flag in flags)
             elif mnemonic == "push":
                 operand = instruction.operands[0]
+                lines.append(f"    uint64_t value = {operand.as_c(64)};")
                 lines.append("    rsp -= 8;")
-                lines.append(f"    write64(rsp, {operand.as_c(64)});")
+                lines.append("    write64(rsp, value);")
             elif mnemonic == "pop":
                 operand = instruction.operands[0]
                 lines.append(f"    {operand.write_c('read64(rsp)', 64)}")
@@ -3136,7 +3144,7 @@ def main():
         check_initialized(start, instructions, args.cpu_context, args.extra_rva)
         stack_arguments = args.stack_arguments
         if stack_arguments is None:
-            stack_arguments = infer_stack_arguments(instructions)
+            stack_arguments = 0 if args.cpu_context else infer_stack_arguments(instructions)
         source = emit_c(args.name, start, instructions, stack_arguments, args.cpu_context, args.local_rva)
         with args.output.open("x", encoding="utf-8", newline="\n") as output:
             output.write(source)

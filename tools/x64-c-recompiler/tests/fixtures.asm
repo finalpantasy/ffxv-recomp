@@ -747,6 +747,25 @@ stack_roundtrip_end PROC
     int 3
 stack_roundtrip_end ENDP
 
+push_stack_sources PROC
+    mov r8, rsp
+    push rsp
+    pop rax
+    sub rax, r8
+    mov r9, [rsp]
+    push qword ptr [rsp]
+    pop r10
+    cmp r9, r10
+    sete r9b
+    movzx r9d, r9b
+    shl r9d, 1
+    or rax, r9
+    ret
+push_stack_sources ENDP
+push_stack_sources_end PROC
+    int 3
+push_stack_sources_end ENDP
+
 push_flags PROC
     xor eax, eax
     stc
