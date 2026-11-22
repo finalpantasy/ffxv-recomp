@@ -661,7 +661,7 @@ def lower(decoded, allow_tail_calls=False):
             frozenset({"rax", "rdx", *operand_reads(source)}),
             frozenset({"rax", "rdx", "flags"}), width, (source,),
         )
-    if mnemonic in {"imul", "mul"} and len(operands) == 1 and operands[0].size in (4, 8):
+    if mnemonic in {"imul", "mul"} and len(operands) == 1 and operands[0].size in (2, 4, 8):
         width = operands[0].size * 8
         source = read_operand(decoded, operands[0], width)
         return Instruction(
@@ -1526,6 +1526,28 @@ def imul_to_c(instruction, flags):
         width = instruction.width
         carry = "&cf" if "cf" in flags else "0"
         overflow = "&of" if "of" in flags else "0"
+        if width == 16:
+            if mnemonic == "mul":
+                lines = [
+                    f"uint32_t product = (uint32_t)(uint16_t)rax * (uint32_t)(uint16_t){source.as_c(16)};",
+                    "int exceeded = product > UINT16_MAX;",
+                    "(void)exceeded;",
+                ]
+            else:
+                lines = [
+                    f"int32_t product = (int32_t)(int16_t)rax * (int32_t)(int16_t){source.as_c(16)};",
+                    "int exceeded = product != (int32_t)(int16_t)product;",
+                    "(void)exceeded;",
+                ]
+            if "cf" in flags:
+                lines.append("cf = exceeded;")
+            if "of" in flags:
+                lines.append("of = exceeded;")
+            lines.extend([
+                "rax = (rax & ~UINT64_C(0xffff)) | (uint16_t)product;",
+                "rdx = (rdx & ~UINT64_C(0xffff)) | (uint16_t)(product >> 16);",
+            ])
+            return lines
         if width == 32:
             if mnemonic == "mul":
                 lines = [

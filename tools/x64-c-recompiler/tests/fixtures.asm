@@ -521,6 +521,34 @@ mul_one32_end PROC
     int 3
 mul_one32_end ENDP
 
+mul_one16 PROC
+    mov ax, cx
+    mov bx, r8w
+    mul bx
+    movzx eax, ax
+    movzx edx, dx
+    shl edx, 16
+    or eax, edx
+    ret
+mul_one16 ENDP
+mul_one16_end PROC
+    int 3
+mul_one16_end ENDP
+
+imul_one16 PROC
+    mov ax, cx
+    mov bx, r8w
+    imul bx
+    movzx eax, ax
+    movzx edx, dx
+    shl edx, 16
+    or eax, edx
+    ret
+imul_one16 ENDP
+imul_one16_end PROC
+    int 3
+imul_one16_end ENDP
+
 sbb_flags PROC
     mov rax, rcx
     bt rax, 0

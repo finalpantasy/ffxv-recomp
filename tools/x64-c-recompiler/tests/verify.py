@@ -12,7 +12,7 @@ import pefile
 
 
 ROOT = Path(__file__).resolve().parents[1]
-FUNCTIONS = ("mix64", "fold32", "classify64", "condition_mask32", "imul_flags", "conditional_move", "prefixed_nop", "rip_relative", "rip_relative_negative", "extend_values", "shift_values", "shift_flags", "rotate_flags", "rotate_flag_preservation", "neg_not", "xchg_andnot", "sign_masks", "sign_extend16", "partial_registers", "partial_flags", "partial_cmp", "set_conditions", "bit_tests", "dynamic_bits", "bit_scans", "imul_three", "bit_reset", "imul_one64", "imul_one32", "mul_one64", "mul_one32", "sbb_flags", "adc_flags", "double_shifts", "double_shifts_cl", "carry_rotates", "rotate_values", "bit_operations", "crc32_values", "jump_rcx", "push_flags", "push_stack_sources")
+FUNCTIONS = ("mix64", "fold32", "classify64", "condition_mask32", "imul_flags", "conditional_move", "prefixed_nop", "rip_relative", "rip_relative_negative", "extend_values", "shift_values", "shift_flags", "rotate_flags", "rotate_flag_preservation", "neg_not", "xchg_andnot", "sign_masks", "sign_extend16", "partial_registers", "partial_flags", "partial_cmp", "set_conditions", "bit_tests", "dynamic_bits", "bit_scans", "imul_three", "bit_reset", "imul_one64", "imul_one32", "mul_one16", "imul_one16", "mul_one64", "mul_one32", "sbb_flags", "adc_flags", "double_shifts", "double_shifts_cl", "carry_rotates", "rotate_values", "bit_operations", "crc32_values", "jump_rcx", "push_flags", "push_stack_sources")
 MEMORY_FUNCTIONS = ("memory_read", "memory_write", "stack_roundtrip")
 STACK_FUNCTIONS = ("stack_argument",)
 XMM_FUNCTIONS = ("xmm_roundtrip",)
