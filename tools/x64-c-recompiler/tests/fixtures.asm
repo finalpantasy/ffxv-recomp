@@ -104,7 +104,7 @@ rip_relative_end ENDP
 prefixed_nop PROC
     nop word ptr [rax + rax]
     mov rax, rcx
-    ret
+    db 0F3h, 0C3h
 prefixed_nop ENDP
 prefixed_nop_end PROC
     int 3
@@ -190,6 +190,42 @@ rotate_flags ENDP
 rotate_flags_end PROC
     int 3
 rotate_flags_end ENDP
+
+rotate_flag_preservation PROC
+    mov eax, 1
+    test eax, eax
+    ror eax, 1
+    sets r8b
+    movzx r8d, r8b
+    mov eax, 1
+    test eax, eax
+    mov eax, 0
+    ror eax, 1
+    setz r9b
+    movzx r9d, r9b
+    shl r9d, 1
+    or r8d, r9d
+    mov eax, 1
+    test eax, eax
+    rol eax, 31
+    sets r9b
+    movzx r9d, r9b
+    shl r9d, 2
+    or r8d, r9d
+    mov eax, 1
+    test eax, eax
+    mov eax, 0
+    rol eax, 1
+    setz r9b
+    movzx r9d, r9b
+    shl r9d, 3
+    or r8d, r9d
+    mov eax, r8d
+    ret
+rotate_flag_preservation ENDP
+rotate_flag_preservation_end PROC
+    int 3
+rotate_flag_preservation_end ENDP
 
 neg_not PROC
     mov rax, rcx

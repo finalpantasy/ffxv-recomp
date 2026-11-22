@@ -284,10 +284,12 @@ def lower(decoded, allow_tail_calls=False):
     following = address + length
     mnemonic = "mov" if decoded.mnemonic == "movabs" else decoded.mnemonic
     operands = decoded.operands
+    if mnemonic == "repz ret" and not operands:
+        mnemonic = "ret"
     empty = frozenset()
     if mnemonic in {"nop", "cld", "std"}:
         return Instruction(address, length, mnemonic, (following,), empty, empty)
-    if any(prefix not in (0, 0x65, 0x66) and not (mnemonic == "push" and prefix == 0x64) and not (mnemonic == "cmp" and prefix == 0x3e) and not (mnemonic in CONDITIONAL_JUMPS and prefix == 0x2e) and not (mnemonic == "lea" and operands[0].size == 4 and prefix == 0x67) and not ((mnemonic in STRING_OPERATIONS or mnemonic == "pause") and prefix == 0xf3) and not (mnemonic in {"rep cmpsw", "repe cmpsw", "repne cmpsw"} and prefix == 0xf3) and not (mnemonic == "repne scasw" and prefix == 0xf2) and not (mnemonic in {"lock xadd", "lock inc", "lock dec", "lock add", "lock and", "lock or", "lock cmpxchg"} and prefix == 0xf0) for prefix in decoded.prefix):
+    if any(prefix not in (0, 0x65, 0x66) and not (mnemonic == "push" and prefix == 0x64) and not (mnemonic == "cmp" and prefix == 0x3e) and not (mnemonic in CONDITIONAL_JUMPS and prefix == 0x2e) and not (mnemonic == "lea" and operands[0].size == 4 and prefix == 0x67) and not (mnemonic == "ret" and not operands and prefix == 0xf3) and not ((mnemonic in STRING_OPERATIONS or mnemonic == "pause") and prefix == 0xf3) and not (mnemonic in {"rep cmpsw", "repe cmpsw", "repne cmpsw"} and prefix == 0xf3) and not (mnemonic == "repne scasw" and prefix == 0xf2) and not (mnemonic in {"lock xadd", "lock inc", "lock dec", "lock add", "lock and", "lock or", "lock cmpxchg"} and prefix == 0xf0) for prefix in decoded.prefix):
         raise LiftError(f"RVA 0x{address:x}: unsupported instruction prefix")
     if mnemonic in {"lock inc", "lock dec", "lock add", "lock and", "lock or"}:
         mnemonic = mnemonic[5:]
@@ -1284,6 +1286,8 @@ def defined_flags(instruction):
         return {"cf", "of", "sf", "zf", "pf"}
     if mnemonic in {"inc", "dec"}:
         return {"of", "sf", "zf", "pf", "af"}
+    if mnemonic in {"rol", "ror"}:
+        return {"cf", "of"}
     if mnemonic in SHIFTS or mnemonic in DOUBLE_SHIFTS and instruction.source_width != 0:
         return {"cf", "of", "sf", "zf", "pf"}
     if mnemonic in CARRY_ROTATES and instruction.source_width % (instruction.width + 1) != 0:
@@ -1429,12 +1433,8 @@ def shift_to_c(instruction, flags):
         formulas = {
             "cf": carry_expression,
             "of": overflow_expression,
-            "sf": f"(result & UINT{width}_C(0x{1 << (width - 1):x})) != 0",
-            "zf": "result == 0",
-            "pf": "parity(result)",
-            "af": "0",
         }
-        lines.extend(f"    {flag} = {formulas[flag]};" for flag in flags)
+        lines.extend(f"    {flag} = {formulas[flag]};" for flag in flags if flag in formulas)
         lines.append(f"    {lhs.write_c('result', width)}")
         lines.append("}")
         return lines
