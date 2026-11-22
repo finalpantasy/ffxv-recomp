@@ -101,6 +101,17 @@ rip_relative_end PROC
     int 3
 rip_relative_end ENDP
 
+negative_image_constant dq 1122334455667788h
+rip_relative_negative PROC
+    db 48h, 8Bh, 05h
+    dd negative_image_constant - $ - 4
+    add rax, rcx
+    ret
+rip_relative_negative ENDP
+rip_relative_negative_end PROC
+    int 3
+rip_relative_negative_end ENDP
+
 prefixed_nop PROC
     nop word ptr [rax + rax]
     mov rax, rcx

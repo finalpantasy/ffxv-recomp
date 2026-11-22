@@ -118,6 +118,8 @@ class Operand:
 
     def address_c(self):
         if self.image_rva is not None:
+            if self.image_rva < 0:
+                return f"(uint64_t)(image_base - UINT64_C(0x{-self.image_rva:x}))"
             return f"(uint64_t)(image_base + UINT64_C(0x{self.image_rva:x}))"
         terms = []
         if self.base is not None:

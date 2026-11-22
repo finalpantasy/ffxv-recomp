@@ -12,7 +12,7 @@ import pefile
 
 
 ROOT = Path(__file__).resolve().parents[1]
-FUNCTIONS = ("mix64", "fold32", "classify64", "condition_mask32", "imul_flags", "conditional_move", "prefixed_nop", "rip_relative", "extend_values", "shift_values", "shift_flags", "rotate_flags", "rotate_flag_preservation", "neg_not", "xchg_andnot", "sign_masks", "sign_extend16", "partial_registers", "partial_flags", "partial_cmp", "set_conditions", "bit_tests", "dynamic_bits", "bit_scans", "imul_three", "bit_reset", "imul_one64", "imul_one32", "mul_one64", "mul_one32", "sbb_flags", "adc_flags", "double_shifts", "carry_rotates", "rotate_values", "bit_operations", "crc32_values", "jump_rcx", "push_flags", "push_stack_sources")
+FUNCTIONS = ("mix64", "fold32", "classify64", "condition_mask32", "imul_flags", "conditional_move", "prefixed_nop", "rip_relative", "rip_relative_negative", "extend_values", "shift_values", "shift_flags", "rotate_flags", "rotate_flag_preservation", "neg_not", "xchg_andnot", "sign_masks", "sign_extend16", "partial_registers", "partial_flags", "partial_cmp", "set_conditions", "bit_tests", "dynamic_bits", "bit_scans", "imul_three", "bit_reset", "imul_one64", "imul_one32", "mul_one64", "mul_one32", "sbb_flags", "adc_flags", "double_shifts", "carry_rotates", "rotate_values", "bit_operations", "crc32_values", "jump_rcx", "push_flags", "push_stack_sources")
 MEMORY_FUNCTIONS = ("memory_read", "memory_write", "stack_roundtrip")
 STACK_FUNCTIONS = ("stack_argument",)
 XMM_FUNCTIONS = ("xmm_roundtrip",)
@@ -231,6 +231,7 @@ def verify_matches(directory, flag, cases):
         + ["/link", f"/out:{filename}"]
         + [f"/export:lifted_{name}" for name in FAST_FUNCTIONS]
         + ["/export:lifted_rip_relative_set_image_base"]
+        + ["/export:lifted_rip_relative_negative_set_image_base"]
         + [f"/export:lifted_{name}_set_call_dispatcher" for name in DIRECT_FUNCTIONS]
         + [f"/export:lifted_{name}_set_call_dispatcher" for name in INDIRECT_FUNCTIONS]
         + [f"/export:lifted_{name}_set_image_base" for name in INDIRECT_FUNCTIONS],
@@ -240,8 +241,8 @@ def verify_matches(directory, flag, cases):
         for name in FUNCTIONS:
             expected = get_function(native, name)
             actual = get_function(lifted, f"lifted_{name}")
-            if name == "rip_relative":
-                setter = getattr(lifted, "lifted_rip_relative_set_image_base")
+            if name in {"rip_relative", "rip_relative_negative"}:
+                setter = getattr(lifted, f"lifted_{name}_set_image_base")
                 setter.argtypes = [ctypes.c_uint64]
                 setter(ctypes.c_uint64(native._handle))
             for case in cases:
