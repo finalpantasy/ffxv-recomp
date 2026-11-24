@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "name": "FFXV Recomp Stack Contract Auditor",
+  "fixes": {
+    "fix72": {
+      "source": "generated/runtime-oep/recomp_runtime.c",
+      "input_sha256": "05C4F7571E0E437C34FE5BA4C2A966662628BB7F8F4EA8EAC71FAD802CFBEEE3",
+      "output_sha256": "BC17A99D2A99AD41CC7CDDF1ADED480099BECF696E7DB69FA68FA040388EB967",
+      "patch": "patches/fix72-return-pop.diff",
+      "patch_sha256": "3D386D5281CCEC6EC0444E0EAAC30112FECB2A881B9C3CF43F7B18A3DD881F86"
+    },
+    "fix44": {
+      "source": "generated/runtime-oep/harness.c",
+      "input_sha256": "0F3FA589B7A92ACF483021D9AF3E2B8D4712BCF79940EB2C59A21B6E611FF169",
+      "output_sha256": "DA0ED888DE6102E46005B9F52128BDB7A8C75D0B64DCF37D841B31D0796075A2",
+      "patch": "patches/fix44-bounce-rsp.diff",
+      "patch_sha256": "3BE30CE2E6653C74897832DA9472143C609208924A785B541C72A19CD6484054"
+    }
+  }
+}

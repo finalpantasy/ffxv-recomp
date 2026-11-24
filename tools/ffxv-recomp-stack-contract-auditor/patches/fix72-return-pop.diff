@@ -1,0 +1,10 @@
+diff --git a/generated/runtime-oep/recomp_runtime.c b/generated/runtime-oep/recomp_runtime.c
+--- a/generated/runtime-oep/recomp_runtime.c
++++ b/generated/runtime-oep/recomp_runtime.c
+@@ -309,5 +309,6 @@ void recomp_cpu_dispatch(RecompCpu *cpu, uint64_t target)
+                     (unsigned long long)cpu->rcx, (unsigned long long)cpu->rdx,
+                     (unsigned long long)cpu->r8, recomp_dispatch_trace_pos);
+         cpu->rax = cpu->rcx;
++        cpu->rsp += 8;
+         return;
+     }

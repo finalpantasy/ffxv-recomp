@@ -1,0 +1,13 @@
+diff --git a/generated/runtime-oep/harness.c b/generated/runtime-oep/harness.c
+--- a/generated/runtime-oep/harness.c
++++ b/generated/runtime-oep/harness.c
+@@ -3769,6 +3769,9 @@ static void call_native(RecompCpu *cpu, uint64_t target) {
+         for (i = 0; i < 9; i++)
+             write64(r - 8 + (uint64_t)i * 8, read64(r + (uint64_t)i * 8));
+         cpu->rsp = r - 8;
++        recomp_native_call((void *)(uintptr_t)target, cpu);
++        cpu->rsp = r + 8;
++        return;
+     }
+     recomp_native_call((void *)(uintptr_t)target, cpu);
+ }
